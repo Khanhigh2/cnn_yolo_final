@@ -23,7 +23,6 @@ web3/
 ├── app.py               # Server Flask với YOLO model (CHÍNH)
 ├── frontend.html        # Giao diện web hoạt động ổn định (CHÍNH)
 ├── Start_System.bat     # File khởi động hệ thống
-├── test_api.py          # Script test API
 └── README.md           # Hướng dẫn này
 ```
 
