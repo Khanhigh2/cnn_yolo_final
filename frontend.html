@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Defect Detection Demo</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        .warning { background: #fff3cd; color: #856404; }        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+            font-size: 14px;
+        }
+        button:hover { background: #0056b3; }
+        button:disabled { 
+            background: #6c757d; 
+            cursor: not-allowed; 
+        }
+        input[type="file"] {
+            margin: 10px 0;
+            padding: 10px;
+            border: 2px dashed #007bff;
+            border-radius: 5px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        #video, #canvas { max-width: 100%; }
+        .hidden { display: none; }
+        .preview-container {
+            margin: 15px 0;
+            text-align: center;
+        }
+        .preview-image {
+            max-width: 100%;
+            max-height: 300px;
+            border-radius: 5px;
+            border: 2px solid #dee2e6;
+        }
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #007bff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 Defect Detection System</h1>
+      <div class="card">
+        <h2>📸 Camera Capture</h2>
+        <video id="video" width="400" height="300" autoplay playsinline></video>
+        <canvas id="canvas" class="hidden" width="400" height="300"></canvas>
+        <br>
+        <button onclick="startCamera()">Start Camera</button>
+        <button onclick="captureImage()" id="captureBtn" disabled>Capture</button>
+        <div id="cameraStatus" class="status" style="display: none;"></div>
+    </div>
+
+    <div class="card">
+        <h2>📁 Upload Image File</h2>
+        <input type="file" id="fileInput" accept="image/*" onchange="handleFileUpload(event)">
+        <div id="uploadPreview"></div>
+    </div>
+
+    <div class="card">
+        <h2>🔍 Detection</h2>
+        <button onclick="detectDefects()" id="detectBtn" disabled>Detect Defects</button>
+        <div id="detectionStatus"></div>
+    </div>
+    
+    <div class="card">
+        <h2>📊 Results</h2>
+        <div id="results">No results yet</div>
+    </div>
+    
+    <div class="card">
+        <h2>🔧 System Status</h2>
+        <div id="status">Testing system...</div>
+    </div>
+
+    <script>        let video, canvas, ctx;
+        let capturedImage = null;
+        let serverAvailable = false;
+        let currentImageSource = null; // 'camera' hoặc 'upload'
+
+        document.addEventListener('DOMContentLoaded', function() {
+            video = document.getElementById('video');
+            canvas = document.getElementById('canvas');
+            ctx = canvas.getContext('2d');
+            
+            checkServer();
+        });
+
+        async function checkServer() {
+            const statusDiv = document.getElementById('status');
+            try {
+                const response = await fetch('http://localhost:5000/api/test', {
+                    method: 'GET',
+                    mode: 'cors'
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    statusDiv.innerHTML = `
+                        <div class="status success">
+                            ✅ Backend Server: Online<br>
+                            Message: ${data.message}
+                        </div>
+                    `;
+                    serverAvailable = true;
+                } else {
+                    throw new Error('Server responded with error');
+                }
+            } catch (error) {
+                statusDiv.innerHTML = `
+                    <div class="status warning">
+                        ⚠️ Backend Server: Offline<br>
+                        Running in demo mode<br>
+                        Error: ${error.message}
+                    </div>
+                `;
+                serverAvailable = false;
+            }
+        }        async function startCamera() {
+            const cameraStatus = document.getElementById('cameraStatus');
+            cameraStatus.style.display = 'block';
+            cameraStatus.className = 'status warning';
+            cameraStatus.innerHTML = '🔄 Starting camera...';
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        width: { ideal: 640 },
+                        height: { ideal: 480 },
+                        facingMode: 'environment' // Prefer back camera on mobile
+                    } 
+                });
+                video.srcObject = stream;
+                
+                video.onloadedmetadata = () => {
+                    video.play();
+                    document.getElementById('captureBtn').disabled = false;
+                    cameraStatus.className = 'status success';
+                    cameraStatus.innerHTML = '✅ Camera active and ready';
+                };
+                
+            } catch (error) {
+                console.error('Camera error:', error);
+                cameraStatus.className = 'status error';
+                cameraStatus.innerHTML = `❌ Camera Error: ${error.message}`;
+                
+                // Suggest solutions based on error type
+                if (error.name === 'NotAllowedError') {
+                    cameraStatus.innerHTML += '<br>💡 Please allow camera permission and try again';
+                } else if (error.name === 'NotFoundError') {
+                    cameraStatus.innerHTML += '<br>💡 No camera found. Please try uploading an image instead';
+                } else if (error.name === 'NotReadableError') {
+                    cameraStatus.innerHTML += '<br>💡 Camera is being used by another application';
+                }
+            }
+        }        function captureImage() {
+            try {
+                ctx.drawImage(video, 0, 0, 400, 300);
+                capturedImage = canvas.toDataURL('image/jpeg', 0.8);
+                currentImageSource = 'camera';
+                
+                document.getElementById('detectBtn').disabled = false;
+                document.getElementById('results').innerHTML = `
+                    <div class="status success">✅ Image captured from camera</div>
+                    <div class="preview-container">
+                        <img src="${capturedImage}" class="preview-image">
+                    </div>
+                `;
+
+                // Clear file input if an image was uploaded before
+                document.getElementById('fileInput').value = '';
+                document.getElementById('uploadPreview').innerHTML = '';
+            } catch (error) {
+                console.error('Capture error:', error);
+                document.getElementById('results').innerHTML = `
+                    <div class="status error">❌ Failed to capture image: ${error.message}</div>
+                `;
+            }
+        }
+
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            const uploadPreview = document.getElementById('uploadPreview');
+            
+            if (!file) {
+                uploadPreview.innerHTML = '';
+                return;
+            }
+
+            // Validate file type
+            if (!file.type.startsWith('image/')) {
+                uploadPreview.innerHTML = `
+                    <div class="status error">❌ Please select a valid image file</div>
+                `;
+                return;
+            }
+
+            // Validate file size (max 10MB)
+            if (file.size > 10 * 1024 * 1024) {
+                uploadPreview.innerHTML = `
+                    <div class="status error">❌ File too large. Please select an image smaller than 10MB</div>
+                `;
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                capturedImage = e.target.result;
+                currentImageSource = 'upload';
+                
+                uploadPreview.innerHTML = `
+                    <div class="status success">✅ Image uploaded successfully</div>
+                    <div class="preview-container">
+                        <img src="${capturedImage}" class="preview-image">
+                    </div>
+                    <p><strong>File:</strong> ${file.name}</p>
+                    <p><strong>Size:</strong> ${(file.size / 1024).toFixed(1)} KB</p>
+                `;
+                
+                document.getElementById('detectBtn').disabled = false;
+                
+                // Clear camera preview if exists
+                document.getElementById('results').innerHTML = '';
+            };
+            
+            reader.onerror = function() {
+                uploadPreview.innerHTML = `
+                    <div class="status error">❌ Failed to read file</div>
+                `;
+            };
+            
+            reader.readAsDataURL(file);
+        }        async function detectDefects() {
+            if (!capturedImage) {
+                alert('Please capture an image or upload a file first');
+                return;
+            }
+
+            const resultsDiv = document.getElementById('results');
+            const detectionStatus = document.getElementById('detectionStatus');
+            const detectBtn = document.getElementById('detectBtn');
+            
+            // Show loading state
+            detectBtn.disabled = true;
+            detectionStatus.innerHTML = `
+                <div class="status warning">
+                    <span class="loading"></span> Analyzing image for defects...
+                </div>
+            `;
+
+            if (serverAvailable) {
+                try {
+                    const response = await fetch('http://localhost:5000/api/detect', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            image: capturedImage,
+                            source: currentImageSource
+                        })
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        detectionStatus.innerHTML = '';
+                        displayResults(data);
+                    } else {
+                        const errorText = await response.text();
+                        throw new Error(`Server error: ${response.status} - ${errorText}`);
+                    }
+                } catch (error) {
+                    console.error('Detection error:', error);
+                    detectionStatus.innerHTML = `
+                        <div class="status error">
+                            ❌ Detection failed: ${error.message}
+                            <br>💡 Please check if the backend server is running
+                        </div>
+                    `;
+                } finally {
+                    detectBtn.disabled = false;
+                }
+            } else {
+                // Demo mode with more realistic simulation
+                setTimeout(() => {
+                    detectionStatus.innerHTML = '';
+                    const hasDefects = Math.random() > 0.5;
+                    displayResults({
+                        success: true,
+                        has_defects: hasDefects,
+                        message: hasDefects ? 
+                            "Phát hiện 1 lỗi: demo_defect (Demo mode)" : 
+                            "Không phát hiện ra lỗi (Demo mode)",
+                        defect_count: hasDefects ? 1 : 0,
+                        defect_types: hasDefects ? ["demo_defect(0.85)"] : []
+                    });
+                    detectBtn.disabled = false;
+                }, 2000);
+            }
+        }        function displayResults(data) {
+            const resultsDiv = document.getElementById('results');
+            
+            if (data.success) {
+                if (data.has_defects) {
+                    // Get defect types - handle different field names
+                    let defectTypesText = 'Unknown';
+                    if (data.defect_names && data.defect_names.length > 0) {
+                        defectTypesText = data.defect_names.join(', ');
+                    } else if (data.defect_types && data.defect_types.length > 0) {
+                        defectTypesText = data.defect_types.join(', ');
+                    }
+                    
+                    // Use annotated image if available, otherwise original
+                    let imageToShow = capturedImage;
+                    if (data.annotated_image) {
+                        imageToShow = 'data:image/jpeg;base64,' + data.annotated_image;
+                    } else if (data.result_image) {
+                        imageToShow = 'data:image/jpeg;base64,' + data.result_image;
+                    }
+                    
+                    resultsDiv.innerHTML = `
+                        <div class="status error">⚠️ DEFECTS DETECTED</div>
+                        <div class="status error">${data.message}</div>
+                        <div style="margin: 15px 0;">
+                            <p><strong>🔍 Defects found:</strong> ${data.defect_count || 'Unknown'}</p>
+                            <p><strong>🏷️ Types:</strong> ${defectTypesText}</p>
+                            <p><strong>📷 Source:</strong> ${currentImageSource === 'camera' ? 'Camera Capture' : 'File Upload'}</p>
+                            ${data.blockchain_tx ? `<p><strong>⛓️ Blockchain TX:</strong> ${data.blockchain_tx.slice(0, 20)}...</p>` : ''}
+                        </div>
+                        <div class="preview-container">
+                            <p><strong>📊 Analysis Result:</strong></p>
+                            <img src="${imageToShow}" class="preview-image" style="border: 3px solid #dc3545;">
+                        </div>
+                    `;
+                } else {
+                    resultsDiv.innerHTML = `
+                        <div class="status success">✅ NO DEFECTS FOUND</div>
+                        <div class="status success">${data.message}</div>
+                        <div style="margin: 15px 0;">
+                            <p><strong>📊 Product quality:</strong> Good ✅</p>
+                            <p><strong>📷 Source:</strong> ${currentImageSource === 'camera' ? 'Camera Capture' : 'File Upload'}</p>
+                        </div>
+                        <div class="preview-container">
+                            <img src="${capturedImage}" class="preview-image" style="border: 3px solid #28a745;">
+                        </div>
+                    `;
+                }
+            } else {
+                resultsDiv.innerHTML = `
+                    <div class="status error">❌ ANALYSIS FAILED</div>
+                    <div class="status error">Error: ${data.error || 'Unknown error occurred'}</div>
+                    <div style="margin: 15px 0;">
+                        <p>💡 <strong>Troubleshooting tips:</strong></p>
+                        <ul style="text-align: left; margin-left: 20px;">
+                            <li>Check if the backend server is running</li>
+                            <li>Ensure the image is clear and well-lit</li>
+                            <li>Try a different image format (JPG, PNG)</li>
+                            <li>Refresh the page and try again</li>
+                        </ul>
+                    </div>
+                `;
+            }
+        }
+    </script>
+</body>
+</html>
