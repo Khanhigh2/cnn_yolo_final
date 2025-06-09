@@ -92,7 +92,4 @@ c:\project_root\dataset\dataset_yolo\images\val\
 - Đóng cửa sổ terminal hoặc
 - Nhấn `Ctrl+C` trong terminal
 
----
-**Phát triển bởi:** AI Assistant  
-**Ngày cập nhật:** June 7, 2025  
-**Phiên bản:** 1.0
+
